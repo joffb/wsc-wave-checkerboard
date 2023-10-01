@@ -27,13 +27,6 @@ uint8_t vblank_fired;
 
 uint8_t scroll_y_values[256];
 
-
-__attribute__((interrupt)) void line(void) __far
-{
-	ws_hwint_ack(HWINT_LINE);
-}
-
-
 __attribute__((interrupt)) void hblank(void) __far
 {
 	// update y scroll from table
@@ -44,29 +37,30 @@ __attribute__((interrupt)) void hblank(void) __far
 
 __attribute__((interrupt)) void vblank(void) __far
 {
-	static uint8_t i, pos, y_value;
+	static uint8_t i, pos, checkerscroll, y_value;
 
 	vblank_fired = 0x01;
 
 	pos = tic;
+	checkerscroll = -tic;
 
 	// y scroll values for lines
-	for (i = 0; i < 144; i += 2)
+	for (i = 0; i < 144; i++)
 	{
-		// scale sine values to 0-63
-		y_value = (sine[pos] >> 2);
-		
-		// every 32 lines add 64 to get alternate checkerboard squares
-		y_value += ((i - tic) & 32) << 1;
-		// every 64 lines add 128 to get alternate colours
-		y_value += ((i - tic) & 64) << 1;
+		// sine values scaled to 0-63
+		y_value = sine[pos];
+
 		// correct for screen line offset
 		y_value = y_value - i - 1;
 
-		scroll_y_values[i] = y_value;
-		scroll_y_values[i + 1] = y_value - 1;
+		// every 32 lines add 64 to get alternate checkerboard squares
+		// every 64 lines add 128 to get alternate colours
+		y_value += (checkerscroll & (32 | 64)) << 1;
 
-		pos += 2;
+		scroll_y_values[i] = y_value;
+
+		checkerscroll++;
+		pos++;
 	}
 
 	tic++;
@@ -91,7 +85,6 @@ void enable_interrupts()
 	// set interrupt handler which only acknowledges the vblank interrupt
 	//ws_hwint_set_default_handler_vblank();
 	//ws_hwint_set_default_handler_hblank_timer();	
-	ws_hwint_set_handler(HWINT_IDX_LINE, line);
 	ws_hwint_set_handler(HWINT_IDX_VBLANK, vblank);
 	ws_hwint_set_handler(HWINT_IDX_HBLANK_TIMER, hblank);
 	
