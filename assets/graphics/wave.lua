@@ -6,5 +6,4 @@ process.emit_symbol("gfx_wave", superfamiconv.convert_tilemap(
 	superfamiconv.config()
 		:mode("wsc")
         :bpp(4)
-        :no_remap()
 ))

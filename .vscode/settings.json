@@ -7,6 +7,7 @@
         "/opt/wonderful/lib/lua/5.4"
     ],
     "files.associations": {
-        "road.h": "c"
+        "road.h": "c",
+        "wave.h": "c"
     }
 }

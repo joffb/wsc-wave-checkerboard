@@ -17,8 +17,10 @@
 #define screen_2 ((ws_scr_entry_t __wf_iram*) 0x1800)
 #define sprites ((ws_sprite_t __wf_iram*) 0x2e00)
 
-uint8_t tic;
-uint8_t palette_tic;
+uint16_t tic;
+
+uint8_t palette_index;
+const uint16_t __wf_rom *wave_palette_u16;
 
 uint8_t scroll_ptr;
 uint8_t scroll_tic;
@@ -27,43 +29,27 @@ uint8_t vblank_fired;
 
 uint8_t scroll_y_values[256];
 
+// hblank interval
+// called after a row of pixels has been drawn
 __attribute__((interrupt)) void hblank(void) __far
 {
+	static uint8_t line;
+
+	// get the line we're currently drawing
+	// add 1 as we're updating the scroll register in time for the next line
+	line = inportb(IO_LCD_LINE) + 1;
+
 	// update y scroll from table
-	outportb(IO_SCR1_SCRL_Y, scroll_y_values[inportb(IO_LCD_LINE)]);
+	outportb(IO_SCR1_SCRL_Y, scroll_y_values[line]);
 
 	ws_hwint_ack(HWINT_HBLANK_TIMER);
 }
 
+// vblank interval
+// called after an entire screen has been drawn
 __attribute__((interrupt)) void vblank(void) __far
 {
-	static uint8_t i, pos, checkerscroll, y_value;
-
-	vblank_fired = 0x01;
-
-	pos = tic;
-	checkerscroll = -tic;
-
-	// y scroll values for lines
-	for (i = 0; i < 144; i++)
-	{
-		// sine values scaled to 0-63
-		y_value = sine[pos];
-
-		// correct for screen line offset
-		y_value = y_value - i - 1;
-
-		// every 32 lines add 64 to get alternate checkerboard squares
-		// every 64 lines add 128 to get alternate colours
-		y_value += (checkerscroll & (32 | 64)) << 1;
-
-		scroll_y_values[i] = y_value;
-
-		checkerscroll++;
-		pos++;
-	}
-
-	tic++;
+	vblank_fired = 1;
 
 	ws_hwint_ack(HWINT_VBLANK);
 }
@@ -79,6 +65,8 @@ void disable_interrupts()
 
 void enable_interrupts()
 {
+	vblank_fired = 0x00;
+
 	// acknowledge interrupt
 	outportb(IO_HWINT_ACK, 0xFF);
 
@@ -96,14 +84,16 @@ void enable_interrupts()
 	// enable wonderswan vblank interrupt
 	ws_hwint_enable(HWINT_VBLANK | HWINT_HBLANK_TIMER);
 
-	vblank_fired = 0x01;
-
 	// enable cpu interrupts
 	cpu_irq_enable();
 }
 
 void main(void)
 {
+	static uint8_t i, pos, y_value;
+	static uint8_t checkerscroll;
+	static uint8_t *y_value_ptr;
+
 	disable_interrupts();
 
 	ws_mode_set(WS_MODE_COLOR_4BPP);
@@ -139,18 +129,57 @@ void main(void)
 	outportw(IO_DISPLAY_CTRL, DISPLAY_SCR1_ENABLE);
 
 	tic = 0;
-	palette_tic = 0;
 	scroll_tic = 0;
+
+	vblank_fired = 0;
+
+	palette_index = 0;
+	wave_palette_u16 = (const uint16_t __wf_rom *) gfx_wave_palette;
 
 	enable_interrupts();
 
 	while(1)
 	{
-		while (!vblank_fired)
+		// wait for vblank to occur, ignoring hblanks
+		while (vblank_fired == 0)
 		{
 			cpu_halt();
 		}
 
-		vblank_fired = 0x00;
+		vblank_fired = 0;
+
+		// sine position and checkerscroll based on tic
+		pos = tic;
+		checkerscroll = pos;
+
+		y_value_ptr = scroll_y_values;
+		
+		// calculate y scroll values for lines
+		for (i = 0; i < 144; i++)
+		{
+			// sine values scaled to 0-127
+			y_value = sine[pos];
+
+			// correct the screen scroll position by subtracting 
+			// the screen line that this line will be displayed on
+			y_value = y_value - i;
+
+			// every 16 lines add 128 to get alternate checkerboard squares
+			y_value = y_value + ((checkerscroll & 16) << 3);
+
+			//update table
+			//scroll_y_values[i] = y_value;
+			*y_value_ptr = y_value;
+			
+			// checkerscroll decremented so the pattern moves contrary
+			// to the sine wave - looks more interesting!
+			checkerscroll--;
+
+			// update sine position and scroll_y_value pointer
+			pos++;
+			y_value_ptr++;
+		}
+
+		tic++;
 	}
 }
